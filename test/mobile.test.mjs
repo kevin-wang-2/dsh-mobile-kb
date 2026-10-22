@@ -90,6 +90,102 @@ async function boot(page) {
 }
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: 手机设置导航保留表单，电脑布局完全恢复`, async () => {
+    const browser = await engine.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    page.setDefaultTimeout(5000);
+    try {
+      await boot(page);
+      await page.evaluate(() => {
+        const style = document.createElement('style');
+        style.textContent = `
+          .fixture_overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+          .fixture_panel{display:flex;width:800px;height:700px;max-width:calc(100vw - 48px);background:white;border-radius:16px;overflow:hidden}
+          .fixture_nav{width:188px;flex:none;padding:22px 12px;display:flex;flex-direction:column}
+          .fixture_navTitle{font-size:16px;font-weight:500;padding:0 12px}
+          .fixture_navList{display:flex;flex-direction:column;overflow:auto}
+          .fixture_navCell{height:40px;border:0;background:transparent;border-radius:8px;font:inherit;text-align:left;padding:9px 12px}
+          .fixture_active{background:#eee}
+          .fixture_content{display:flex;flex-direction:column;flex:1;min-width:0}
+          .fixture_header{height:54px;flex:none;display:flex;justify-content:flex-end;padding:14px}
+          .fixture_actions{margin-left:auto}
+          .fixture_options{flex:1;min-height:0;padding:0 24px 24px;overflow:auto}
+        `;
+        document.head.append(style);
+        const overlay = document.createElement('div');
+        overlay.className = 'fixture_overlay';
+        overlay.innerHTML = `<div data-shortcut-modal="settings" class="fixture_panel" role="dialog">
+          <nav class="fixture_nav"><div class="fixture_navTitle">设置</div><div class="fixture_navList">
+            <button class="fixture_navCell fixture_active" aria-current="true">通用</button>
+            <button class="fixture_navCell">模型</button></div></nav>
+          <div class="fixture_content"><div class="fixture_header"><div class="fixture_actions"><button>原生操作</button></div><button data-close>关闭</button></div>
+          <div class="fixture_options"><input aria-label="配置草稿"><div style="height:1400px">原生表单</div></div></div></div>`;
+        overlay.querySelector('[data-close]').onclick = () => overlay.remove();
+        overlay.querySelectorAll('nav button').forEach(button => button.onclick = () => {
+          overlay.querySelectorAll('nav button').forEach(node => {
+            node.classList.toggle('fixture_active', node === button);
+            if (node === button) node.setAttribute('aria-current', 'true');
+            else node.removeAttribute('aria-current');
+          });
+        });
+        document.body.append(overlay);
+        window.settingsGeometry = () => [...overlay.querySelectorAll('*')].map(node => ({
+          html: node.outerHTML,
+          rect: node.getBoundingClientRect().toJSON(),
+          style: ['display', 'padding', 'fontSize', 'color', 'backgroundColor', 'borderRadius']
+            .map(key => getComputedStyle(node)[key]),
+        }));
+      });
+      const desktop = await page.evaluate(() => settingsGeometry());
+      assert.equal(await page.locator('[data-dsh-mobile-settings]').count(), 0);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => viewportTo({ width: 390, height: 844 }));
+      const panel = page.locator('[data-dsh-mobile-settings]');
+      await panel.waitFor();
+      assert.equal(await panel.getAttribute('data-dsh-mobile-settings'), 'index');
+      const input = page.getByRole('textbox', { name: '配置草稿' });
+      assert.equal(await input.isVisible(), false);
+      await page.getByRole('button', { name: '通用', exact: true }).click();
+      assert.equal(await panel.getAttribute('data-dsh-mobile-settings'), 'detail');
+      assert.equal(await page.locator('[data-dsh-settings-title]').textContent(), '通用');
+      await input.fill('尚未保存的草稿');
+      await page.locator('[data-dsh-settings-options]').evaluate(el => { el.scrollTop = 200; });
+      await page.locator('[data-dsh-settings-back]').click();
+      await page.getByRole('button', { name: '通用', exact: true }).click();
+      assert.equal(await input.inputValue(), '尚未保存的草稿');
+      assert.equal(await page.locator('[data-dsh-settings-options]').evaluate(el => el.scrollTop), 200);
+      for (const [height, offsetTop] of [[420, 120], [220, 200], [844, 0]]) {
+        await page.evaluate(values => viewportTo(values), { height, offsetTop });
+        await page.waitForFunction(h => document.querySelector('[data-dsh-mobile-settings]').getBoundingClientRect().height === h, height);
+        const box = await panel.boundingBox();
+        const header = await page.locator('[data-dsh-settings-header]').boundingBox();
+        assert.equal(box.y, offsetTop);
+        assert.equal(box.width, 390);
+        assert.ok(header.y >= box.y && header.y + header.height <= box.y + box.height);
+      }
+      await page.locator('[data-dsh-settings-back]').click();
+      await page.getByRole('button', { name: '模型', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('[data-dsh-settings-title]').textContent === '模型');
+      // 恢复原分类和表单值，以逐节点比较桌面 DOM、几何和视觉属性。
+      await page.locator('[data-dsh-settings-back]').click();
+      await page.getByRole('button', { name: '通用', exact: true }).click();
+      await input.fill('');
+      await page.locator('[data-dsh-settings-options]').evaluate(el => { el.scrollTop = 0; });
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.waitForFunction(() => !document.querySelector('[data-dsh-mobile-settings]'));
+      assert.deepEqual(await page.evaluate(() => settingsGeometry()), desktop);
+      // 未打开过手机布局的窄电脑/平板宽度，仍保留原生双栏。
+      await page.setViewportSize({ width: 800, height: 900 });
+      assert.equal(await page.locator('[data-dsh-mobile-settings]').count(), 0);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await panel.waitFor();
+      await page.evaluate(() => { unmount(); mount(); });
+      assert.equal(await page.locator('[data-dsh-settings-back]').count(), 1);
+      await page.evaluate(() => unmount());
+      assert.equal(await page.locator('[data-dsh-settings-back]').count(), 0);
+      assert.equal(await page.locator('[data-dsh-mobile-settings]').count(), 0);
+    } finally { await browser.close(); }
+  });
   test(`${name}: 手机布局、键盘偏移、拖动与输入回归`, async t => {
     const browser = await engine.launch({ headless: true });
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });

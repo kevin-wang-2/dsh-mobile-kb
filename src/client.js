@@ -2,6 +2,7 @@ import { applyViewport } from './viewport.js';
 import { applyDrawer } from './drawer.js';
 import { applyKeys } from './keys.tsx';
 import { CSS } from './style.js';
+import { applySettings, SETTINGS_CSS } from './settings.js';
 
 export const name = 'dsh-mobile-kb';
 export const inject = ['layout', 'slots'];
@@ -32,7 +33,7 @@ export function apply(ctx) {
     style.id = 'dsh-mobile-style';
     style.dataset.plugin = name;
     style.dataset.pluginCss = name + '/mobile.css';
-    style.textContent = CSS;
+    style.textContent = CSS + SETTINGS_CSS;
     document.head.append(style);
     return () => style.remove();
   });
@@ -40,5 +41,6 @@ export function apply(ctx) {
   applyViewport(scoped, media);
   applyDrawer(scoped, media);
   applyKeys(scoped);
+  applySettings(scoped);
   ctx.effect(() => dispose, 'DSH 手机布局、抽屉与输入');
 }

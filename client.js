@@ -763,6 +763,186 @@ body.dsh-mobile-collapsed .dsh-mobile-fab { display: inline-flex; }
 .dsh-mobile-fab:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 `;
 
+// src/settings.js
+function applySettings(ctx) {
+  ctx.effect(() => {
+    const media = matchMedia("(max-width: 767.98px)");
+    const panels = /* @__PURE__ */ new Map();
+    const attach = (panel) => {
+      const nav = panel.querySelector("nav");
+      const content = nav?.nextElementSibling;
+      const header = content?.firstElementChild;
+      const options = content?.lastElementChild;
+      if (!nav || !header || header === options) return;
+      const navTitle = nav.firstElementChild;
+      const navList = nav.lastElementChild;
+      const title = document.createElement("span");
+      title.className = navTitle.className;
+      title.dataset.dshSettingsTitle = "";
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = navList.querySelector("button").className;
+      back.classList.remove(...[...back.classList].filter((name2) => name2.endsWith("_active")));
+      back.dataset.dshSettingsBack = "";
+      header.prepend(back, title);
+      panel.dataset.dshMobileSettings = "index";
+      nav.dataset.dshSettingsNav = "";
+      content.dataset.dshSettingsContent = "";
+      header.dataset.dshSettingsHeader = "";
+      options.dataset.dshSettingsOptions = "";
+      const syncTitle = () => {
+        const label = navTitle.textContent;
+        const active = navList.querySelector('[aria-current="true"]');
+        const detail = panel.dataset.dshMobileSettings === "detail";
+        const text = detail ? active?.textContent ?? label : label;
+        if (title.textContent !== text) title.textContent = text;
+        if (back.textContent !== "\u2039 " + label) back.textContent = "\u2039 " + label;
+      };
+      const select = (event) => {
+        if (!(event.target instanceof Element) || !event.target.closest("button")) return;
+        panel.dataset.dshMobileSettings = "detail";
+        syncTitle();
+        back.focus({ preventScroll: true });
+      };
+      const showIndex = () => {
+        panel.dataset.dshMobileSettings = "index";
+        syncTitle();
+        navList.querySelector('[aria-current="true"]')?.focus({ preventScroll: true });
+      };
+      navList.addEventListener("click", select);
+      back.addEventListener("click", showIndex);
+      syncTitle();
+      panels.set(panel, {
+        syncTitle,
+        dispose() {
+          const focusedBack = document.activeElement === back;
+          navList.removeEventListener("click", select);
+          back.removeEventListener("click", showIndex);
+          back.remove();
+          title.remove();
+          delete panel.dataset.dshMobileSettings;
+          delete nav.dataset.dshSettingsNav;
+          delete content.dataset.dshSettingsContent;
+          delete header.dataset.dshSettingsHeader;
+          delete options.dataset.dshSettingsOptions;
+          if (focusedBack) navList.querySelector('[aria-current="true"]')?.focus({ preventScroll: true });
+        }
+      });
+    };
+    const scan = () => {
+      for (const [panel, state] of panels) {
+        if (!panel.isConnected) {
+          state.dispose();
+          panels.delete(panel);
+        }
+      }
+      for (const panel of document.querySelectorAll('[data-shortcut-modal="settings"]')) {
+        if (!panels.has(panel)) attach(panel);
+        else panels.get(panel).syncTitle();
+      }
+    };
+    const observer = new MutationObserver(scan);
+    const clear = () => {
+      observer.disconnect();
+      for (const state of panels.values()) state.dispose();
+      panels.clear();
+    };
+    const update = () => {
+      clear();
+      if (!media.matches) return;
+      scan();
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["aria-current"]
+      });
+    };
+    media.addEventListener("change", update);
+    update();
+    return () => {
+      media.removeEventListener("change", update);
+      clear();
+    };
+  });
+}
+var SETTINGS_CSS = `
+@media (max-width: 767.98px) {
+  [data-shortcut-modal="settings"][data-dsh-mobile-settings] {
+    position: fixed;
+    top: var(--dsh-mobile-top, 0px);
+    left: var(--dsh-mobile-left, 0px);
+    width: var(--dsh-mobile-width, 100vw);
+    height: var(--dsh-mobile-height, 100dvh);
+    max-width: none;
+    border-radius: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  [data-dsh-mobile-settings] [data-dsh-settings-content] { display: contents; }
+  [data-dsh-mobile-settings] [data-dsh-settings-header] {
+    grid-area: 1 / 1;
+    min-width: 0;
+    height: auto;
+    min-height: 56px;
+    padding: 8px max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  [data-dsh-mobile-settings] [data-dsh-settings-title] { grid-area: 1 / 2; padding: 0; min-width: 0; overflow-wrap: anywhere; }
+  [data-dsh-mobile-settings="index"] [data-dsh-settings-title] { grid-column: 1 / 3; }
+  [data-dsh-mobile-settings] [data-dsh-settings-back] { grid-area: 1 / 1; padding: 8px 4px; }
+  [data-dsh-mobile-settings] [data-dsh-settings-header] > button:last-child { grid-area: 1 / 3; }
+  [data-dsh-mobile-settings] [data-dsh-settings-header] > [class$="_actions"] {
+    grid-area: 2 / 1 / 3 / -1;
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  [data-dsh-mobile-settings] [data-dsh-settings-header] > [class$="_actions"]:not(:has(button, a, [role="button"])) { display: none; }
+  [data-dsh-mobile-settings="index"] [data-dsh-settings-back] { display: none; }
+  [data-dsh-mobile-settings] [data-dsh-settings-nav] {
+    grid-area: 2 / 1;
+    width: auto;
+    min-height: 0;
+    padding: 8px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px));
+  }
+  [data-dsh-mobile-settings] [data-dsh-settings-nav] > :first-child { display: none; }
+  [data-dsh-mobile-settings] [data-dsh-settings-nav] button { min-height: 44px; }
+  [data-dsh-mobile-settings] [data-dsh-settings-options] {
+    grid-area: 2 / 1;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px));
+    overscroll-behavior: contain;
+    overflow-wrap: anywhere;
+  }
+  [data-dsh-mobile-settings="index"] [data-dsh-settings-options],
+  [data-dsh-mobile-settings="detail"] [data-dsh-settings-nav] { display: none; }
+
+  /* \u5404\u4E1A\u52A1\u63D2\u4EF6\u4ECD\u7ED8\u5236\u81EA\u5DF1\u7684\u63A7\u4EF6\uFF1B\u53EA\u91CA\u653E\u684C\u9762\u884C\u5E03\u5C40\u7559\u4E0B\u7684\u5BBD\u5EA6\u7EA6\u675F\u3002 */
+  [data-dsh-settings-options] [class$="_row"] { flex-wrap: wrap; row-gap: 12px; }
+  [data-dsh-settings-options] [class$="_rowText"] { flex-basis: 180px; padding-right: 0; }
+  [data-dsh-settings-options] [class$="_control"] { flex-wrap: wrap; max-width: 100%; }
+  [data-dsh-settings-options] :is([class$="_rowHead"], [class$="_editorHeader"], [class$="_editorActions"], [class$="_groupTitleRow"]) { flex-wrap: wrap; }
+  [data-dsh-settings-options] [class$="_modelRow"] { grid-template-columns: minmax(0, 1fr) auto auto; }
+  [data-dsh-settings-options] [class$="_modelRow"] > :first-child { grid-column: 1 / -1; }
+  [data-dsh-settings-options] [class$="_modelAdvanced"] { grid-template-columns: minmax(0, 1fr); }
+  [data-dsh-settings-options] [class$="_modelReasoningRow"] { grid-template-columns: minmax(0, 1fr) auto; }
+  [data-dsh-settings-options] [class$="_modelReasoningRow"] > :first-child { grid-column: 1 / -1; }
+  [data-dsh-settings-options] [class$="_cards"] { grid-template-columns: minmax(0, 1fr); }
+  [data-dsh-settings-options] [class$="_tabs"] { overflow-x: auto; flex-shrink: 0; }
+  [data-dsh-settings-options] [class$="_tab"] { flex-shrink: 0; }
+  /* \u539F\u9884\u8BBE\u56FE\u6807\u7684\u63D0\u793A\u6C14\u6CE1\u5411\u53F3\u8D8A\u754C\uFF1B\u624B\u673A\u4E0A\u4ECD\u6CBF\u7528\u6C14\u6CE1\u5916\u89C2\uFF0C\u6539\u4E3A\u53F3\u4FA7\u5BF9\u9F50\u3002 */
+  [data-dsh-settings-options] [class$="_iconButton"][data-tip]::after { left: auto; right: 0; transform: none; }
+}
+`;
+
 // src/client.js
 var name = "dsh-mobile-kb";
 var inject = ["layout", "slots"];
@@ -796,7 +976,7 @@ function apply(ctx) {
     style.id = "dsh-mobile-style";
     style.dataset.plugin = name;
     style.dataset.pluginCss = name + "/mobile.css";
-    style.textContent = CSS;
+    style.textContent = CSS + SETTINGS_CSS;
     document.head.append(style);
     return () => style.remove();
   });
@@ -804,6 +984,7 @@ function apply(ctx) {
   applyViewport(scoped, media);
   applyDrawer(scoped, media);
   applyKeys(scoped);
+  applySettings(scoped);
   ctx.effect(() => dispose, "DSH \u624B\u673A\u5E03\u5C40\u3001\u62BD\u5C49\u4E0E\u8F93\u5165");
 }
 return module.exports; } });
