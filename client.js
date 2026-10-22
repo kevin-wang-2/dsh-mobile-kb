@@ -264,52 +264,51 @@ var import_react = require("react");
 var MOUNT_SLOT = "__dshMobileKeysAbort";
 var PACKAGE_NAME = "dsh-mobile-kb";
 var ROW_CLASS = "dsh-mobile-keys";
-var STYLE = [
-  ".dsh-mobile-keys {",
-  "  position: fixed;",
-  "  top: calc(var(--dsh-mobile-top, 0px) + env(safe-area-inset-top, 0px) + 96px);",
-  "  left: calc(var(--dsh-mobile-left, 0px) + var(--dsh-mobile-width, 100vw) - 170px - env(safe-area-inset-right, 0px));",
-  "  z-index: 1000;",
-  "  display: flex;",
-  "  align-items: center;",
-  "  gap: 7px;",
-  "}",
-  ".dsh-mobile-keys > button {",
-  "  display: inline-flex;",
-  "  align-items: center;",
-  "  justify-content: center;",
-  "  min-width: 34px;",
-  "  height: 34px;",
-  "  padding: 0 10px;",
-  "  border: 0.5px solid var(--dsw-alias-border-l3);",
-  "  border-radius: var(--dsw-radius-sm, 8px);",
-  "  background: var(--dsw-alias-button-elevated-fill);",
-  "  color: var(--dsw-alias-label-primary);",
-  "  box-shadow: var(--dsw-elevation-panel);",
-  "  font: inherit;",
-  "  font-size: 14px;",
-  "  line-height: 1;",
-  "  cursor: pointer;",
-  "  -webkit-tap-highlight-color: transparent;",
-  "}",
-  ".dsh-mobile-keys > button:active,",
-  ".dsh-mobile-keys > button.is-active {",
-  "  background: var(--dsw-alias-interactive-bg-hover);",
-  "  border-color: var(--dsw-alias-label-primary);",
-  "}",
-  ".dsh-mobile-keys > button:focus-visible {",
-  "  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));",
-  "  outline-offset: 2px;",
-  "}",
-  "@media (min-width: 1024px) {",
-  "  .dsh-mobile-keys {",
-  "    display: none;",
-  "  }",
-  "}",
-  ""
-].join("\n");
+var STYLE = `
+.dsh-mobile-keys {
+  position: absolute;
+  top: min(calc(env(safe-area-inset-top, 0px) + 96px), calc(100% - 52px));
+  right: max(8px, env(safe-area-inset-right, 0px));
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dsh-mobile-keys-panel { display: flex; gap: 6px; }
+.dsh-mobile-keys-panel[hidden] { display: none; }
+.dsh-mobile-keys button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border: .5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm, 8px);
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-panel);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.dsh-mobile-keys button[data-keys-toggle] { padding: 0; font-size: 20px; }
+.dsh-mobile-keys button:active,
+.dsh-mobile-keys button.is-active,
+.dsh-mobile-keys button[aria-expanded="true"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-color: var(--dsw-alias-label-primary);
+}
+.dsh-mobile-keys button:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+}
+@media (min-width: 1024px) { .dsh-mobile-keys { display: none; } }
+`;
 var KEYS = [
-  { id: "shift", label: "Shift", modifier: "shift" },
   { id: "ctrl", label: "Ctrl", modifier: "ctrl" },
   { id: "tab", label: "Tab", text: "	", yieldToMenu: true }
 ];
@@ -342,7 +341,7 @@ function syncModifierState() {
     button.setAttribute("aria-pressed", locked ? "true" : "false");
   }
 }
-function press(key) {
+function press(key, target = document.activeElement) {
   if (key.modifier !== void 0) {
     if (activeModifiers.has(key.modifier)) {
       activeModifiers.delete(key.modifier);
@@ -353,32 +352,30 @@ function press(key) {
     return;
   }
   const modifiers = {
-    ctrlKey: activeModifiers.has("ctrl"),
-    shiftKey: activeModifiers.has("shift")
+    ctrlKey: activeModifiers.has("ctrl")
   };
   activeModifiers.clear();
   syncModifierState();
-  insert(key, modifiers);
+  insert(key, modifiers, target);
 }
-function insert(key, modifiers) {
+function insert(key, modifiers, active) {
   const text = key.text;
   if (text === void 0) {
-    console.warn("[dsh-mobile-drawer] \u952E\u4F4D\u65E2\u4E0D\u662F\u4FEE\u9970\u952E\u4E5F\u6CA1\u6709\u5B57\u7B26\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
+    console.warn("[dsh-mobile-kb] \u952E\u4F4D\u65E2\u4E0D\u662F\u4FEE\u9970\u952E\u4E5F\u6CA1\u6709\u5B57\u7B26\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
     return;
   }
-  const active = document.activeElement;
   if (active instanceof HTMLElement && active.isContentEditable) {
     if (key.yieldToMenu === true && !dispatchTab(active, modifiers)) {
       return;
     }
     const inputActions = activeActions;
     if (inputActions === void 0) {
-      console.warn("[dsh-mobile-drawer] \u5BF9\u8BDD\u8F93\u5165\u6846\u6709\u7126\u70B9\u4F46\u62FF\u4E0D\u5230 inputActions\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
+      console.warn("[dsh-mobile-kb] \u5BF9\u8BDD\u8F93\u5165\u6846\u6709\u7126\u70B9\u4F46\u62FF\u4E0D\u5230 inputActions\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
       return;
     }
     const span = inputActions.captureInsertion();
     if (!inputActions.insertText(text, span)) {
-      console.warn("[dsh-mobile-drawer] \u8F93\u5165\u6846\u5224\u5B9A\u9009\u533A\u5DF2\u8FC7\u671F\u800C\u62D2\u7EDD\u63D2\u5165\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
+      console.warn("[dsh-mobile-kb] \u8F93\u5165\u6846\u5224\u5B9A\u9009\u533A\u5DF2\u8FC7\u671F\u800C\u62D2\u7EDD\u63D2\u5165\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
     }
     return;
   }
@@ -389,7 +386,7 @@ function insert(key, modifiers) {
     const start = active.selectionStart;
     const end = active.selectionEnd;
     if (start === null || end === null) {
-      console.warn("[dsh-mobile-drawer] \u5F53\u524D\u8F93\u5165\u6846\u53D6\u4E0D\u5230\u9009\u533A\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
+      console.warn("[dsh-mobile-kb] \u5F53\u524D\u8F93\u5165\u6846\u53D6\u4E0D\u5230\u9009\u533A\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
       return;
     }
     active.setRangeText(text, start, end, "end");
@@ -400,7 +397,7 @@ function insert(key, modifiers) {
     dispatchTab(active, modifiers);
     return;
   }
-  console.warn("[dsh-mobile-drawer] \u5F53\u524D\u6CA1\u6709\u80FD\u63A5\u6536\u6309\u952E\u7684\u5143\u7D20\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
+  console.warn("[dsh-mobile-kb] \u5F53\u524D\u6CA1\u6709\u80FD\u63A5\u6536\u6309\u952E\u7684\u5143\u7D20\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
 }
 function ActionsBridge({ inputActions }) {
   (0, import_react.useEffect)(() => {
@@ -436,9 +433,10 @@ function applyKeys(ctx) {
     return () => {
       style.remove();
     };
-  }, "dsh-mobile-drawer\uFF1A\u624B\u673A\u6309\u952E\u6837\u5F0F");
+  }, "dsh-mobile-kb\uFF1A\u624B\u673A\u6309\u952E\u6837\u5F0F");
   ctx.effect(() => {
     const onPointerDown = (event) => {
+      if (!event.isPrimary || event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof Element)) {
         return;
@@ -447,13 +445,20 @@ function applyKeys(ctx) {
       if (row === null) {
         return;
       }
+      if (target.closest("button[data-keys-toggle]")) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const toggle = row.querySelector("[data-keys-toggle]");
+        toggle?.click();
+        return;
+      }
       const button = target.closest("button[data-key]");
       if (button === null || !row.contains(button)) {
         return;
       }
       const key = KEYS.find((item) => item.id === button.getAttribute("data-key"));
       if (key === void 0) {
-        console.warn("[dsh-mobile-drawer] \u6309\u952E\u6761\u4E0A\u7684\u6309\u94AE\u6CA1\u6709\u5BF9\u5E94\u952E\u4F4D\uFF1A" + String(button.getAttribute("data-key")));
+        console.warn("[dsh-mobile-kb] \u6309\u952E\u6761\u4E0A\u7684\u6309\u94AE\u6CA1\u6709\u5BF9\u5E94\u952E\u4F4D\uFF1A" + String(button.getAttribute("data-key")));
         return;
       }
       event.preventDefault();
@@ -461,7 +466,7 @@ function applyKeys(ctx) {
       press(key);
     };
     document.addEventListener("pointerdown", onPointerDown, { capture: true, signal: controller.signal });
-  }, "dsh-mobile-drawer\uFF1A\u624B\u673A\u6309\u952E");
+  }, "dsh-mobile-kb\uFF1A\u624B\u673A\u6309\u952E");
   ctx.effect(() => {
     const media = matchMedia("(max-width: 1023.98px)");
     let composing = false;
@@ -500,7 +505,7 @@ function applyKeys(ctx) {
       const isEnter = event.key === "Enter" || event.code === "Enter" || event.keyCode === 13;
       if (!media.matches || !holder || !isEnter || inComposition(event, holder)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      const shift = event.shiftKey || activeModifiers.has("shift");
+      const shift = event.shiftKey;
       const ctrl = activeModifiers.has("ctrl");
       if (!shift && !ctrl && holder.closest("[data-composer-seat]")?.querySelector("[data-trigger-menu]")) return;
       if (!shift && ctrl) {
@@ -512,7 +517,6 @@ function applyKeys(ctx) {
         holder.dispatchEvent(new KeyboardEvent("keyup", { ...ENTER_EVENT, ctrlKey: true }));
         return;
       }
-      activeModifiers.delete("shift");
       syncModifierState();
       newline(event, holder);
     };
@@ -550,6 +554,16 @@ function applyKeys(ctx) {
   ctx.effect(() => {
     const row = document.createElement("div");
     row.className = ROW_CLASS;
+    const panel = document.createElement("div");
+    panel.id = "dsh-mobile-keys-panel";
+    panel.className = "dsh-mobile-keys-panel";
+    panel.hidden = true;
+    panel.setAttribute("role", "group");
+    panel.setAttribute("aria-label", "\u8F85\u52A9\u6309\u952E");
+    let previousTarget = null;
+    row.addEventListener("focusin", (event) => {
+      if (event.relatedTarget instanceof Element && !row.contains(event.relatedTarget)) previousTarget = event.relatedTarget;
+    }, { signal: controller.signal });
     for (const key of KEYS) {
       const button = document.createElement("button");
       button.type = "button";
@@ -559,16 +573,53 @@ function applyKeys(ctx) {
         button.setAttribute("aria-pressed", "false");
       }
       button.textContent = key.label;
-      row.append(button);
+      button.addEventListener("click", (event) => {
+        if (event.detail !== 0) return;
+        event.preventDefault();
+        press(key, previousTarget);
+      }, { signal: controller.signal });
+      panel.append(button);
     }
-    document.body.append(row);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.dataset.keysToggle = "";
+    toggle.textContent = "\u2328";
+    toggle.setAttribute("aria-controls", panel.id);
+    const setExpanded = (expanded) => {
+      panel.hidden = !expanded;
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.setAttribute("aria-label", expanded ? "\u6536\u8D77\u8F85\u52A9\u952E" : "\u5C55\u5F00\u8F85\u52A9\u952E");
+      toggle.title = expanded ? "\u6536\u8D77\u8F85\u52A9\u952E" : "\u5C55\u5F00\u8F85\u52A9\u952E";
+      if (!expanded) {
+        activeModifiers.clear();
+        syncModifierState();
+      }
+    };
+    const signal = controller.signal;
+    toggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (event.detail === 0) setExpanded(panel.hidden);
+    }, { signal });
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !panel.hidden) {
+        setExpanded(false);
+        toggle.focus({ preventScroll: true });
+      }
+    }, { signal });
+    const media = matchMedia("(max-width: 1023.98px)");
+    media.addEventListener("change", () => {
+      if (!media.matches) setExpanded(false);
+    }, { signal });
+    row.append(panel, toggle);
+    document.getElementById("root")?.append(row);
     keyRow = row;
+    setExpanded(false);
     return () => {
       row.remove();
       keyRow = void 0;
       activeModifiers.clear();
     };
-  }, "dsh-mobile-drawer\uFF1A\u624B\u673A\u6309\u952E\u6761");
+  }, "dsh-mobile-kb\uFF1A\u624B\u673A\u6309\u952E\u6761");
   ctx.slots.inject(
     "conversation.input.dock",
     () => ctx.slots.register(
