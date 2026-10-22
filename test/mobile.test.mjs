@@ -10,11 +10,12 @@ const fixture = `<!doctype html><html><head><meta name="viewport" content="width
 header{height:64px;flex:none}[data-conversation-scroll]{overflow:auto;flex:1;min-height:0;display:flex;flex-direction:column}
 article{height:1600px;flex:1 0 auto}[data-composer-seat]{position:sticky;bottom:0;flex:none;background:white}
 [data-composer-input]{min-height:48px;max-height:160px;overflow:auto;padding:10px;border:1px solid #888}
+[data-composer-toolbar]{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-height:36px}
 </style></head><body><div id="root"><div data-frame data-sidebar-collapsed data-rightbar-collapsed>
 <div><div data-slot="sidebar"><div><button aria-label="内置侧栏"><svg viewBox="0 0 10 10"><path d="M1 1h8v8H1z"/></svg></button>
 <div data-row-key="session:fixture"><span>会话</span></div></div></div></div>
 <main><header>标题不应被入口覆盖</header><div data-conversation-scroll><article>对话</article>
-<div data-composer-seat><div data-composer-input contenteditable="true" role="textbox"></div><button id="send">发送</button></div>
+<div data-composer-seat><div data-composer-input contenteditable="true" role="textbox"></div><div data-composer-toolbar><span data-slot="conversation.input.right"></span><button id="send">发送</button></div></div>
 </div></main><aside></aside></div></div></body></html>`;
 
 async function boot(page) {
@@ -45,12 +46,22 @@ async function boot(page) {
       slots: {
         inject: (_name, callback) => { testState.unmounts.push(callback()); },
         register: (_spec, Component) => {
-          Component({ inputActions });
-          return () => {};
+          const node = Component({ inputActions });
+          return () => node?.unmount?.();
         },
       },
     };
-    const react = { useEffect: effect => { testState.unmounts.push(effect()); } };
+    const react = {
+      useEffect: effect => { testState.unmounts.push(effect()); },
+      createElement: (tag, props) => {
+        const node = document.createElement(tag);
+        node.className = props.className;
+        document.querySelector('[data-slot="conversation.input.right"]').append(node);
+        props.ref(node);
+        node.unmount = () => { props.ref(null); node.remove(); };
+        return node;
+      },
+    };
     window.__ModuleLoader__ = { load: spec => {
       window.plugin = spec.factory(() => react);
     } };
@@ -258,6 +269,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
         assert.equal(await ctrl.isVisible(), false);
         assert.equal(await tab.isVisible(), false);
+        assert.equal(await toggle.evaluate(el => !!el.closest('[data-slot="conversation.input.right"]')), true);
+        const entry = await toggle.boundingBox();
+        const toolbar = await page.locator('[data-composer-toolbar]').boundingBox();
+        const send = await page.locator('#send').boundingBox();
+        assert.ok(entry.y >= toolbar.y && entry.y + entry.height <= toolbar.y + toolbar.height);
+        assert.ok(entry.x + entry.width <= send.x);
         await editor.evaluate(el => el.replaceChildren());
         await editor.fill('AB');
         await editor.press('ArrowLeft');
@@ -266,6 +283,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
         assert.equal(await editor.evaluate(el => document.activeElement === el), true);
         assert.deepEqual(await toggle.boundingBox(), closed);
+        assert.deepEqual(await page.locator('#send').boundingBox(), send);
         await tab.click();
         assert.equal(await editor.textContent(), 'A\tB');
         assert.equal(await editor.evaluate(el => document.activeElement === el), true);
@@ -307,17 +325,24 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           closeTestMenu();
           const terminal = document.createElement('textarea');
           terminal.id = 'terminal-fixture';
-          terminal.style.cssText = 'position:absolute;top:200px;left:20px;width:100px;height:44px';
+          terminal.style.cssText = 'flex:1;min-height:0;width:100%';
           terminal.value = 'terminal';
           terminal.addEventListener('keydown', event => {
             if (event.key !== 'Tab') return;
             event.preventDefault();
             testState.terminalTab = { key: event.key, ctrl: event.ctrlKey };
           });
-          document.getElementById('root').append(terminal);
+          const surface = document.createElement('section');
+          surface.dataset.sidebarTerminal = '';
+          surface.style.cssText = 'position:absolute;top:140px;left:8px;width:240px;height:180px;display:flex;flex-direction:column';
+          surface.append(terminal);
+          document.getElementById('root').append(surface);
         });
         const terminal = page.locator('#terminal-fixture');
         await terminal.focus();
+        assert.equal(await toggle.evaluate(el => !!el.closest('[data-sidebar-terminal]')), true);
+        assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+        await toggle.click();
         await ctrl.click();
         await tab.click();
         assert.deepEqual(await page.evaluate(() => testState.terminalTab), { key: 'Tab', ctrl: true });
@@ -331,7 +356,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await tab.press('Enter');
         assert.deepEqual(await page.evaluate(() => testState.terminalTab), { key: 'Tab', ctrl: true });
         assert.equal(await ctrl.getAttribute('aria-pressed'), 'false');
-        await terminal.evaluate(el => el.remove());
+        await terminal.evaluate(el => el.closest('[data-sidebar-terminal]').remove());
+        await page.waitForFunction(() => !!document.querySelector('[data-keys-toggle]')?.closest('[data-composer-seat]'));
+        await toggle.click();
         await toggle.focus();
         await toggle.press('Escape');
         assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
@@ -342,6 +369,42 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.waitForFunction(() => document.querySelector('[data-keys-toggle]').getAttribute('aria-expanded') === 'false');
         assert.equal(await ctrl.getAttribute('aria-pressed'), 'false');
         await page.setViewportSize({ width: 390, height: 844 });
+        await editor.click();
+      });
+      await t.test('编辑器使用自己的局部辅助键，不向聊天草稿插入字符', async () => {
+        const draft = await editor.textContent();
+        for (const className of ['cm-editor', 'monaco-editor']) {
+          await page.evaluate(className => {
+            const surface = document.createElement('section');
+            surface.id = 'code-fixture';
+            surface.className = className;
+            surface.style.cssText = 'position:absolute;top:140px;left:8px;width:300px;height:180px;display:flex;flex-direction:column';
+            const input = document.createElement('div');
+            input.contentEditable = 'true';
+            input.setAttribute('role', 'textbox');
+            input.textContent = 'code';
+            input.style.cssText = 'flex:1;min-height:0;overflow:auto';
+            input.addEventListener('keydown', event => {
+              if (event.key !== 'Tab') return;
+              event.preventDefault();
+              testState.codeTab = { key: event.key, ctrl: event.ctrlKey };
+            });
+            surface.append(input);
+            document.getElementById('root').append(surface);
+          }, className);
+          const code = page.locator('#code-fixture [role="textbox"]');
+          await code.focus();
+          const toggle = page.locator('[data-keys-toggle]');
+          assert.equal(await toggle.evaluate(el => el.closest('#code-fixture') !== null), true);
+          await toggle.click();
+          await page.locator('[data-key="ctrl"]').click();
+          await page.locator('[data-key="tab"]').click();
+          assert.deepEqual(await page.evaluate(() => testState.codeTab), { key: 'Tab', ctrl: true });
+          assert.equal(await code.textContent(), 'code');
+          assert.equal(await editor.textContent(), draft);
+          await page.locator('#code-fixture').evaluate(el => el.remove());
+          await page.waitForFunction(() => !!document.querySelector('[data-keys-toggle]')?.closest('[data-composer-seat]'));
+        }
         await editor.click();
       });
       await t.test('重复加载不重复插入，切宽屏恢复宿主行为，卸载清理', async () => {

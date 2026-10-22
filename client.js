@@ -266,22 +266,35 @@ var PACKAGE_NAME = "dsh-mobile-kb";
 var ROW_CLASS = "dsh-mobile-keys";
 var STYLE = `
 .dsh-mobile-keys {
-  position: absolute;
-  top: min(calc(env(safe-area-inset-top, 0px) + 96px), calc(100% - 52px));
-  right: max(8px, env(safe-area-inset-right, 0px));
-  z-index: 1000;
-  display: flex;
+  position: relative;
+  flex: none;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-.dsh-mobile-keys-panel { display: flex; gap: 6px; }
+.dsh-mobile-keys-seat { display: inline-flex; flex: none; }
+.dsh-mobile-keys[data-context] { align-self: flex-end; margin: 4px 8px; }
+.monaco-editor > .dsh-mobile-keys { position: absolute; bottom: 0; right: 0; }
+.dsh-mobile-keys-panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: .5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md, 12px);
+  background: var(--dsw-alias-button-elevated-fill);
+  box-shadow: var(--dsw-elevation-panel);
+}
 .dsh-mobile-keys-panel[hidden] { display: none; }
 .dsh-mobile-keys button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  height: 44px;
+  min-width: 40px;
+  height: 36px;
   padding: 0 10px;
   border: .5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-sm, 8px);
@@ -295,7 +308,15 @@ var STYLE = `
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
-.dsh-mobile-keys button[data-keys-toggle] { padding: 0; font-size: 20px; }
+.dsh-mobile-keys button[data-keys-toggle] {
+  height: 32px;
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
 .dsh-mobile-keys button:active,
 .dsh-mobile-keys button.is-active,
 .dsh-mobile-keys button[aria-expanded="true"] {
@@ -364,7 +385,7 @@ function insert(key, modifiers, active) {
     console.warn("[dsh-mobile-kb] \u952E\u4F4D\u65E2\u4E0D\u662F\u4FEE\u9970\u952E\u4E5F\u6CA1\u6709\u5B57\u7B26\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
     return;
   }
-  if (active instanceof HTMLElement && active.isContentEditable) {
+  if (active instanceof HTMLElement && active.isContentEditable && active.matches("[data-composer-input]")) {
     if (key.yieldToMenu === true && !dispatchTab(active, modifiers)) {
       return;
     }
@@ -399,16 +420,26 @@ function insert(key, modifiers, active) {
   }
   console.warn("[dsh-mobile-kb] \u5F53\u524D\u6CA1\u6709\u80FD\u63A5\u6536\u6309\u952E\u7684\u5143\u7D20\uFF0C\u6309\u952E\u672A\u751F\u6548\uFF1A" + key.id);
 }
+var composerSeat = null;
+var attachKeys;
+function bindComposerSeat(node) {
+  const previous = composerSeat;
+  composerSeat = node;
+  if (node) {
+    const active = document.activeElement;
+    if (!(active instanceof Element) || !active.closest("[data-sidebar-terminal], .cm-editor, .monaco-editor")) attachKeys?.(node);
+  } else if (previous?.contains(keyRow ?? null)) {
+    attachKeys?.(null);
+  }
+}
 function ActionsBridge({ inputActions }) {
   (0, import_react.useEffect)(() => {
     activeActions = inputActions;
     return () => {
-      if (activeActions === inputActions) {
-        activeActions = void 0;
-      }
+      if (activeActions === inputActions) activeActions = void 0;
     };
   }, [inputActions]);
-  return null;
+  return (0, import_react.createElement)("span", { className: "dsh-mobile-keys-seat", ref: bindComposerSeat });
 }
 function applyKeys(ctx) {
   const host = window;
@@ -583,7 +614,7 @@ function applyKeys(ctx) {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.dataset.keysToggle = "";
-    toggle.textContent = "\u2328";
+    toggle.textContent = "\u8F85\u52A9\u952E";
     toggle.setAttribute("aria-controls", panel.id);
     const setExpanded = (expanded) => {
       panel.hidden = !expanded;
@@ -611,20 +642,50 @@ function applyKeys(ctx) {
       if (!media.matches) setExpanded(false);
     }, { signal });
     row.append(panel, toggle);
-    document.getElementById("root")?.append(row);
     keyRow = row;
+    const moveTo = (seat) => {
+      if (row.parentElement === seat) return;
+      setExpanded(false);
+      row.remove();
+      if (!seat) return;
+      const context = seat.matches("[data-sidebar-terminal]") ? "terminal" : seat.matches(".cm-editor, .monaco-editor") ? "editor" : null;
+      if (context) row.dataset.context = context;
+      else delete row.dataset.context;
+      seat.append(row);
+    };
+    attachKeys = moveTo;
+    const placeForInput = (target) => {
+      if (!(target instanceof HTMLElement) || row.contains(target)) return;
+      if (target.closest("[data-composer-input]")) {
+        moveTo(composerSeat);
+        return;
+      }
+      if (!target.matches('textarea, [contenteditable="true"], [role="textbox"]')) return;
+      const surface = target.closest("[data-sidebar-terminal], .cm-editor, .monaco-editor");
+      if (surface) moveTo(surface);
+    };
+    const onFocus = (event) => placeForInput(event.target);
+    document.addEventListener("focusin", onFocus, { capture: true, signal });
+    const observer = new MutationObserver(() => {
+      if (!row.isConnected && composerSeat?.isConnected) moveTo(composerSeat);
+    });
+    observer.observe(document.getElementById("root"), { childList: true, subtree: true });
+    moveTo(composerSeat);
+    placeForInput(document.activeElement);
     setExpanded(false);
     return () => {
+      observer.disconnect();
       row.remove();
       keyRow = void 0;
+      if (attachKeys === moveTo) attachKeys = void 0;
       activeModifiers.clear();
     };
   }, "dsh-mobile-kb\uFF1A\u624B\u673A\u6309\u952E\u6761");
   ctx.slots.inject(
-    "conversation.input.dock",
+    "conversation.input.right",
     () => ctx.slots.register(
       {
-        name: "conversation.input.dock",
+        name: "conversation.input.right",
         id: "dsh-mobile-keys",
         order: 100
       },

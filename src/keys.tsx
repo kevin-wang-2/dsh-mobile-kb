@@ -6,7 +6,7 @@
  * 按键能力改编自 better-er/dsh-mobile-drawer (MIT)，见 LICENSE。
  */
 
-import { useEffect, type ReactNode } from 'react'
+import { createElement, useEffect, type ReactNode } from 'react'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -19,25 +19,38 @@ const PACKAGE_NAME = 'dsh-mobile-kb'
 /** 键位组容器类名，样式一次注入。 */
 const ROW_CLASS = 'dsh-mobile-keys'
 
-/** 收起态仅显示入口；键位面板向左展开，不占据标题区域。 */
+/** 入口位于当前输入面的工具栏，展开面板向上弹出，不挤占发送按钮。 */
 const STYLE = `
 .dsh-mobile-keys {
-  position: absolute;
-  top: min(calc(env(safe-area-inset-top, 0px) + 96px), calc(100% - 52px));
-  right: max(8px, env(safe-area-inset-right, 0px));
-  z-index: 1000;
-  display: flex;
+  position: relative;
+  flex: none;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-.dsh-mobile-keys-panel { display: flex; gap: 6px; }
+.dsh-mobile-keys-seat { display: inline-flex; flex: none; }
+.dsh-mobile-keys[data-context] { align-self: flex-end; margin: 4px 8px; }
+.monaco-editor > .dsh-mobile-keys { position: absolute; bottom: 0; right: 0; }
+.dsh-mobile-keys-panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: .5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md, 12px);
+  background: var(--dsw-alias-button-elevated-fill);
+  box-shadow: var(--dsw-elevation-panel);
+}
 .dsh-mobile-keys-panel[hidden] { display: none; }
 .dsh-mobile-keys button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  height: 44px;
+  min-width: 40px;
+  height: 36px;
   padding: 0 10px;
   border: .5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-sm, 8px);
@@ -51,7 +64,15 @@ const STYLE = `
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
-.dsh-mobile-keys button[data-keys-toggle] { padding: 0; font-size: 20px; }
+.dsh-mobile-keys button[data-keys-toggle] {
+  height: 32px;
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
 .dsh-mobile-keys button:active,
 .dsh-mobile-keys button.is-active,
 .dsh-mobile-keys button[aria-expanded="true"] {
@@ -91,19 +112,19 @@ const activeModifiers = new Set<Modifier>()
 let keyRow: Element | undefined
 
 /** 输入区按键条的 props，session 作用域下带标准输入操作面。 */
-type InputDockProps = PropsRuntime<'conversation.input.dock'>
+type InputControlProps = PropsRuntime<'conversation.input.right'>
 
 /** 当前会话的输入操作面，由 slot 组件挂载后持续更新。 */
-let activeActions: InputDockProps['inputActions'] | undefined
+let activeActions: InputControlProps['inputActions'] | undefined
 
 /** 客户端上下文里本模块用得到的一小片。 */
 export interface KeysContext {
   effect(callback: () => (() => void) | void, label?: string): void
   slots: {
-    inject(key: 'conversation.input.dock', callback: () => (() => void) | void): void
+    inject(key: 'conversation.input.right', callback: () => (() => void) | void): void
     register(
-      spec: { name: 'conversation.input.dock'; id: string; order?: number },
-      component: (props: InputDockProps) => ReactNode,
+      spec: { name: 'conversation.input.right'; id: string; order?: number },
+      component: (props: InputControlProps) => ReactNode,
     ): () => void
   }
 }
@@ -197,7 +218,7 @@ function insert(key: KeySpec, modifiers: ModifierState, active: Element | null):
     return
   }
 
-  if (active instanceof HTMLElement && active.isContentEditable) {
+  if (active instanceof HTMLElement && active.isContentEditable && active.matches('[data-composer-input]')) {
     if (key.yieldToMenu === true && !dispatchTab(active, modifiers)) {
       return
     }
@@ -236,23 +257,29 @@ function insert(key: KeySpec, modifiers: ModifierState, active: Element | null):
   console.warn('[dsh-mobile-kb] 当前没有能接收按键的元素，按键未生效：' + key.id)
 }
 
-/**
- * 只做一件事的空组件：把会话作用域的输入操作面留下来给按键条用。
- *
- * 按键条本身不渲染在这里。它挂在全局外壳右侧，终端与文件编辑器这些不在会话输入区的页面也该看得见，
- * 所以由 applyKeys 直接建 DOM，这个登记点只负责拿到 inputActions。
- */
-function ActionsBridge({ inputActions }: InputDockProps) {
+/** composer 的原生工具栏座位；同一套按键随当前输入面移动。 */
+let composerSeat: HTMLElement | null = null
+let attachKeys: ((seat: HTMLElement | null) => void) | undefined
+
+function bindComposerSeat(node: HTMLSpanElement | null): void {
+  const previous = composerSeat
+  composerSeat = node
+  if (node) {
+    const active = document.activeElement
+    if (!(active instanceof Element) || !active.closest('[data-sidebar-terminal], .cm-editor, .monaco-editor')) attachKeys?.(node)
+  } else if (previous?.contains(keyRow ?? null)) {
+    attachKeys?.(null)
+  }
+}
+
+function ActionsBridge({ inputActions }: InputControlProps) {
   useEffect(() => {
     activeActions = inputActions
     return () => {
-      if (activeActions === inputActions) {
-        activeActions = undefined
-      }
+      if (activeActions === inputActions) activeActions = undefined
     }
   }, [inputActions])
-
-  return null
+  return createElement('span', { className: 'dsh-mobile-keys-seat', ref: bindComposerSeat })
 }
 
 /**
@@ -447,7 +474,7 @@ export function applyKeys(ctx: KeysContext): void {
     const toggle = document.createElement('button')
     toggle.type = 'button'
     toggle.dataset.keysToggle = ''
-    toggle.textContent = '⌨'
+    toggle.textContent = '辅助键'
     toggle.setAttribute('aria-controls', panel.id)
     const setExpanded = (expanded: boolean) => {
       panel.hidden = !expanded
@@ -474,20 +501,52 @@ export function applyKeys(ctx: KeysContext): void {
     const media = matchMedia('(max-width: 1023.98px)')
     media.addEventListener('change', () => { if (!media.matches) setExpanded(false) }, { signal })
     row.append(panel, toggle)
-    document.getElementById('root')?.append(row)
     keyRow = row
+    const moveTo = (seat: HTMLElement | null) => {
+      if (row.parentElement === seat) return
+      setExpanded(false)
+      row.remove()
+      if (!seat) return
+      const context = seat.matches('[data-sidebar-terminal]') ? 'terminal'
+        : seat.matches('.cm-editor, .monaco-editor') ? 'editor' : null
+      if (context) row.dataset.context = context
+      else delete row.dataset.context
+      seat.append(row)
+    }
+    attachKeys = moveTo
+    const placeForInput = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement) || row.contains(target)) return
+      if (target.closest('[data-composer-input]')) {
+        moveTo(composerSeat)
+        return
+      }
+      if (!target.matches('textarea, [contenteditable="true"], [role="textbox"]')) return
+      const surface = target.closest<HTMLElement>('[data-sidebar-terminal], .cm-editor, .monaco-editor')
+      if (surface) moveTo(surface)
+    }
+    const onFocus = (event: FocusEvent) => placeForInput(event.target)
+    document.addEventListener('focusin', onFocus, { capture: true, signal })
+    // 关闭终端/编辑器时，控件回到 composer；不留下脱离输入面的悬浮入口。
+    const observer = new MutationObserver(() => {
+      if (!row.isConnected && composerSeat?.isConnected) moveTo(composerSeat)
+    })
+    observer.observe(document.getElementById('root')!, { childList: true, subtree: true })
+    moveTo(composerSeat)
+    placeForInput(document.activeElement)
     setExpanded(false)
     return () => {
+      observer.disconnect()
       row.remove()
       keyRow = undefined
+      if (attachKeys === moveTo) attachKeys = undefined
       activeModifiers.clear()
     }
   }, 'dsh-mobile-kb：手机按键条')
 
-  ctx.slots.inject('conversation.input.dock', () =>
+  ctx.slots.inject('conversation.input.right', () =>
     ctx.slots.register(
       {
-        name: 'conversation.input.dock',
+        name: 'conversation.input.right',
         id: 'dsh-mobile-keys',
         order: 100,
       },
