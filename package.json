@@ -1,0 +1,42 @@
+{
+  "name": "dsh-mobile-kb",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH 手机适配：可拖动侧栏入口、Safari 键盘视口和手机回车换行",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "playwright": "^1.62.1"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}
